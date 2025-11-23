@@ -8,3 +8,6 @@ haversine
 scipy
 numpy
 mysql-connector-python
+gunicorn
+flasgger
+pymysql
