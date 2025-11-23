@@ -122,7 +122,7 @@ def list_hospitals():
 
 
 @business_bp.post("/assign/compare-patient")
-def assign_compare_patient():
+def post_api_assign_compare_patient():
     """
     Compara TODOS los algoritmos para un solo paciente.
 
@@ -131,14 +131,10 @@ def assign_compare_patient():
       - Para cada asignación, 2 algoritmos de ruta (Dijkstra, Bellman-Ford)
       - 3 algoritmos de redes (Kruskal, Prim, Edmonds-Karp)
 
-    Devuelve:
-      - Datos del paciente
-      - Especialidad requerida
-      - Para cada algoritmo de asignación:
-          * hospital asignado (si lo hay)
-          * distancia geográfica paciente-hospital
-          * rutas Dijkstra y Bellman-Ford en el grafo KNN
-      - Tiempos de los algoritmos de redes
+    Ahora también permite elegir el tipo de grafo:
+      - graph_mode: "knn", "radius", "bipartite_knn"
+      - k: parámetro para knn/bipartito
+      - radius_km: parámetro para grafo por radio
 
     ---
     tags:
@@ -155,26 +151,20 @@ def assign_compare_patient():
             patient_code:
               type: string
               example: P0001
+            graph_mode:
+              type: string
+              example: bipartite_knn
+            k:
+              type: integer
+              example: 10
+            radius_km:
+              type: number
+              example: 50.0
     responses:
       200:
-        description: Resultados de comparación de algoritmos para el paciente
-        schema:
-          type: object
-          properties:
-            patient:
-              type: object
-            specialty_required:
-              type: string
-            assignment_algorithms:
-              type: array
-              items:
-                type: object
-            network_algorithms:
-              type: array
-              items:
-                type: object
+        description: Resultados de todos los algoritmos
       400:
-        description: Petición inválida (falta patient_code)
+        description: Petición inválida
       404:
         description: Paciente no encontrado
     """
@@ -186,20 +176,31 @@ def assign_compare_patient():
             "error": "Debe enviar 'patient_code' (ej. 'P0001')"
         }), 400
 
+    graph_mode = body.get("graph_mode") or body.get("graph")  # opcional
+    k = body.get("k")
+    radius_km = body.get("radius_km") or body.get("radius")
+
     service = get_service()
 
     try:
+        # Configurar grafo según lo que pidió el front (si envía algo)
+        service.configure_graph(graph_mode, k=k, radius_km=radius_km)
+
         result = service.compare_all_algorithms_for_patient(patient_code)
+        # opcional: incluir info del grafo usado
+        result["graph_config"] = {
+            "graph_mode": graph_mode,
+            "k": k,
+            "radius_km": radius_km,
+        }
         return jsonify(result)
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 404
     except Exception as ex:
-        # Para debug; en producción loguear en vez de mostrar detail
         return jsonify({"error": "Error interno", "detail": str(ex)}), 500
 
-
 @business_bp.post("/assign/patient-best")
-def assign_patient_best():
+def post_api_assign_patient_best():
     """
     Asigna un solo paciente a un hospital "final" usando lógica de negocio
     y algoritmos de asignación en este orden de prioridad:
@@ -209,7 +210,12 @@ def assign_patient_best():
 
     Además devuelve:
       - Distancia geográfica paciente-hospital
-      - Ruta Dijkstra y Bellman-Ford en el grafo KNN
+      - Ruta Dijkstra y Bellman-Ford en el grafo
+
+    Ahora también permite elegir el tipo de grafo:
+      - graph_mode: "knn", "radius", "bipartite_knn"
+      - k: parámetro para knn/bipartito
+      - radius_km: parámetro para grafo por radio
 
     ---
     tags:
@@ -226,24 +232,18 @@ def assign_patient_best():
             patient_code:
               type: string
               example: P0001
+            graph_mode:
+              type: string
+              example: bipartite_knn
+            k:
+              type: integer
+              example: 10
+            radius_km:
+              type: number
+              example: 50.0
     responses:
       200:
-        description: Asignación final de hospital para el paciente
-        schema:
-          type: object
-          properties:
-            patient:
-              type: object
-            specialty_required:
-              type: string
-            algorithm_used:
-              type: object
-            hospital:
-              type: object
-            distance_geo_km:
-              type: number
-            paths:
-              type: object
+        description: Hospital asignado y detalles de ruta
       400:
         description: Petición inválida (falta patient_code)
       404:
@@ -257,11 +257,22 @@ def assign_patient_best():
             "error": "Debe enviar 'patient_code' (ej. 'P0001')"
         }), 400
 
+    graph_mode = body.get("graph_mode") or body.get("graph")
+    k = body.get("k")
+    radius_km = body.get("radius_km") or body.get("radius")
+
     service = get_service()
 
     try:
-        # Usamos el método que definimos en el servicio para elegir un hospital definitivo
+        # Configurar grafo según selección del front
+        service.configure_graph(graph_mode, k=k, radius_km=radius_km)
+
         result = service.assign_best_hospital_for_patient(patient_code)
+        result["graph_config"] = {
+            "graph_mode": graph_mode,
+            "k": k,
+            "radius_km": radius_km,
+        }
         return jsonify(result)
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 404

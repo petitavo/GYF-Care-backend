@@ -1,6 +1,6 @@
 # services/business_assignment_service.py
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import time
 
 from db import db
@@ -24,19 +24,67 @@ from algorithms.edmonds_karp import edmonds_karp
 # Distancia geográfica
 from utils.geo_utils import distancia_km
 
+# Construcción de grafos (3 algoritmos)
+from graph.graph_builder import GraphBuilder
+from shared.config import Config
+
 
 class BusinessAssignmentService:
     """
     Servicio de alto nivel que integra:
       - Lógica de negocio (enfermedad → especialidad → hospitales candidatos).
       - Algoritmos de asignación (Greedy, Hungarian, Min-Cost Max-Flow).
-      - Algoritmos de ruta (Dijkstra, Bellman-Ford) sobre el grafo KNN.
+      - Algoritmos de ruta (Dijkstra, Bellman-Ford) sobre el grafo KNN / Radius / Bipartito.
       - Algoritmos de redes (Kruskal, Prim, Edmonds-Karp) sobre el grafo.
     """
 
     def __init__(self):
+        # Grafo por defecto (ej: KNN o bipartito, lo decide RoutingService o luego configure_graph)
         self.routing_service = RoutingService()
         self.graph = self.routing_service.get_graph()
+
+    # ------------------------
+    # 0. Configurar grafo a usar
+    # ------------------------
+    def configure_graph(
+        self,
+        graph_mode: Optional[str] = None,
+        k: Optional[int] = None,
+        radius_km: Optional[float] = None,
+    ) -> None:
+        """
+        Permite elegir el tipo de grafo a usar en:
+          - Dijkstra / Bellman-Ford
+          - Algoritmos de redes
+          - Asignación de pacientes (cuando usa rutas del grafo)
+
+        graph_mode:
+          - "knn"
+          - "radius"
+          - "bipartite_knn"
+          - None -> deja el grafo actual (por defecto)
+        """
+        if not graph_mode:
+            # No cambiar el grafo actual
+            return
+
+        # Valores por defecto
+        if k is None:
+            k = Config.K_NEIGHBORS
+        if radius_km is None:
+            radius_km = 50.0
+
+        builder = GraphBuilder(k=k)
+        builder.load_nodes_from_db()
+
+        if graph_mode == "knn":
+            self.graph = builder.build_knn_graph(k=k)
+        elif graph_mode == "radius":
+            self.graph = builder.build_radius_graph(radius_km=radius_km)
+        elif graph_mode == "bipartite_knn":
+            self.graph = builder.build_bipartite_knn_graph(k=k)
+        else:
+            raise ValueError(f"graph_mode inválido: {graph_mode}")
 
     # ------------------------
     # 1. Inferir especialidad
@@ -160,7 +208,6 @@ class BusinessAssignmentService:
 
         results: List[Dict[str, Any]] = []
 
-        # Helper para encontrar la asignación concreta del paciente
         def find_assignment(assignments, patient_id: str):
             """
             Busca la asignación del paciente mirando varios nombres de clave posibles.
@@ -185,44 +232,44 @@ class BusinessAssignmentService:
             return None
 
         # ---- 3.1 Greedy
-        t0 = time.time()
+        t0 = time.perf_counter()
         greedy_out = greedy_assign(patients_input, hospitals)
-        t1 = time.time()
+        t1 = time.perf_counter()
         greedy_asg = find_assignment(greedy_out, patient["id"])
 
         results.append({
             "name": "Greedy",
             "category": "Asignación",
             "big_o": "O(P·H)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "raw_assignment": greedy_asg,
         })
 
         # ---- 3.2 Hungarian
-        t0 = time.time()
+        t0 = time.perf_counter()
         hung_out = hungarian(patients_input, hospitals)
-        t1 = time.time()
+        t1 = time.perf_counter()
         hung_asg = find_assignment(hung_out, patient["id"])
 
         results.append({
             "name": "Hungarian",
             "category": "Asignación",
             "big_o": "O(n^3)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "raw_assignment": hung_asg,
         })
 
         # ---- 3.3 Min-Cost Max-Flow
-        t0 = time.time()
+        t0 = time.perf_counter()
         mcmf_out = min_cost_flow(patients_input, hospitals)
-        t1 = time.time()
+        t1 = time.perf_counter()
         mcmf_asg = find_assignment(mcmf_out, patient["id"])
 
         results.append({
             "name": "Min-Cost Max-Flow",
             "category": "Asignación",
             "big_o": "O(V^2·E)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "raw_assignment": mcmf_asg,
         })
 
@@ -237,7 +284,7 @@ class BusinessAssignmentService:
         hospital_id: str
     ) -> Dict[str, Any]:
         """
-        Ejecuta Dijkstra y Bellman-Ford en el grafo KNN para el par
+        Ejecuta Dijkstra y Bellman-Ford en el grafo actual para el par
         (patient_id, hospital_id).
         """
         if patient_id not in self.graph or hospital_id not in self.graph:
@@ -247,27 +294,27 @@ class BusinessAssignmentService:
             }
 
         # Dijkstra
-        t0 = time.time()
+        t0 = time.perf_counter()
         dist_d, path_d = dijkstra(self.graph, patient_id, hospital_id)
-        t1 = time.time()
+        t1 = time.perf_counter()
         dijkstra_res = {
             "algorithm": "Dijkstra",
             "category": "Ruta más corta",
             "big_o": "O(E log V)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "distance": dist_d,
             "path_nodes": path_d,
         }
 
         # Bellman-Ford
-        t0 = time.time()
+        t0 = time.perf_counter()
         dist_b, path_b = bellman_ford(self.graph, patient_id, hospital_id)
-        t1 = time.time()
+        t1 = time.perf_counter()
         bellman_res = {
             "algorithm": "Bellman-Ford",
             "category": "Ruta más corta",
             "big_o": "O(V·E)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "distance": dist_b,
             "path_nodes": path_b,
         }
@@ -288,14 +335,14 @@ class BusinessAssignmentService:
         results: List[Dict[str, Any]] = []
 
         # 5.1 Kruskal (MST)
-        t0 = time.time()
+        t0 = time.perf_counter()
         mst_k, cost_k = kruskal(self.graph)
-        t1 = time.time()
+        t1 = time.perf_counter()
         results.append({
             "name": "Kruskal",
             "category": "Redes / MST",
             "big_o": "O(E log V)",
-            "time_ms": (t1 - t0) * 1000.0,
+            "time_ms": round((t1 - t0) * 1000.0, 6),
             "extra": {"mst_cost": cost_k},
         })
 
@@ -307,19 +354,18 @@ class BusinessAssignmentService:
 
         if any_node is not None:
             # 5.2 Prim (MST)
-            t0 = time.time()
+            t0 = time.perf_counter()
             mst_p, cost_p = prim(self.graph, any_node)
-            t1 = time.time()
+            t1 = time.perf_counter()
             results.append({
                 "name": "Prim",
                 "category": "Redes / MST",
                 "big_o": "O(E log V)",
-                "time_ms": (t1 - t0) * 1000.0,
+                "time_ms": round((t1 - t0) * 1000.0, 6),
                 "extra": {"mst_cost": cost_p},
             })
 
         # 5.3 Edmonds-Karp (Flujo máximo) – armamos capacidades simples = 1
-        # Elegimos dos nodos cualquiera distintos
         nodes_list = list(self.graph.keys())
         if len(nodes_list) >= 2:
             source = nodes_list[0]
@@ -332,15 +378,15 @@ class BusinessAssignmentService:
                     if u not in capacity.get(v, {}):
                         capacity.setdefault(v, {})[u] = 0
 
-            t0 = time.time()
+            t0 = time.perf_counter()
             max_flow_val = edmonds_karp(capacity, source, sink)
-            t1 = time.time()
+            t1 = time.perf_counter()
 
             results.append({
                 "name": "Edmonds-Karp",
                 "category": "Redes / Flujo máximo",
                 "big_o": "O(V·E^2)",
-                "time_ms": (t1 - t0) * 1000.0,
+                "time_ms": round((t1 - t0) * 1000.0, 6),
                 "extra": {
                     "source": source,
                     "sink": sink,
@@ -435,7 +481,7 @@ class BusinessAssignmentService:
                 hosp["lat"], hosp["lon"]
             )
 
-            # Rutas en el grafo KNN: Dijkstra vs Bellman-Ford
+            # Rutas en el grafo: Dijkstra vs Bellman-Ford
             path_results = self.compute_path_algorithms(patient_id, hosp_id)
 
             assignment_algos_final.append({
@@ -456,7 +502,7 @@ class BusinessAssignmentService:
                 "paths": path_results,
             })
 
-        # 2) Redes (global, pero usamos ese mismo grafo)
+        # 2) Redes (global)
         network_algos = self.run_network_algorithms()
 
         # 3) Armar respuesta final
@@ -472,4 +518,48 @@ class BusinessAssignmentService:
             "specialty_required": specialty,
             "assignment_algorithms": assignment_algos_final,
             "network_algorithms": network_algos,
+        }
+
+    # ------------------------
+    # 7. Método para elegir un único hospital "mejor"
+    # ------------------------
+    def assign_best_hospital_for_patient(self, patient_code: str) -> Dict[str, Any]:
+        """
+        Usa compare_all_algorithms_for_patient y aplica la prioridad:
+          1) Min-Cost Max-Flow
+          2) Hungarian
+          3) Greedy
+
+        Devuelve:
+          - Datos del paciente
+          - Especialidad requerida
+          - Algoritmo usado
+          - Hospital asignado
+          - Distancia geográfica
+          - Rutas Dijkstra / Bellman-Ford
+        """
+        full = self.compare_all_algorithms_for_patient(patient_code)
+        algos = full.get("assignment_algorithms", [])
+
+        priority = ["Min-Cost Max-Flow", "Hungarian", "Greedy"]
+
+        chosen = None
+        for alg_name in priority:
+            for a in algos:
+                if a["name"] == alg_name and a.get("hospital"):
+                    chosen = a
+                    break
+            if chosen:
+                break
+
+        if not chosen:
+            raise ValueError("Ningún algoritmo pudo asignar un hospital para este paciente.")
+
+        return {
+            "patient": full["patient"],
+            "specialty_required": full["specialty_required"],
+            "algorithm_used": chosen["name"],
+            "hospital": chosen["hospital"],
+            "distance_geo_km": chosen["distance_geo_km"],
+            "paths": chosen["paths"],
         }

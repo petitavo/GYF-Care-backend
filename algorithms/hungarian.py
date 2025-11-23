@@ -1,8 +1,13 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from graph.graph_utils import haversine
+from typing import List, Dict, Any
 
-def hungarian(patients, hospitals):
+
+def hungarian(
+    patients: List[Dict[str, Any]],
+    hospitals: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     P = len(patients)
     H = len(hospitals)
 
@@ -19,7 +24,7 @@ def hungarian(patients, hospitals):
         assignments.append({
             "patient": patients[r]["id"],
             "hospital": hospitals[c]["id"],
-            "dist_km": float(cost[r][c])
+            "dist_km": float(cost[r][c]),
         })
 
     return assignments
