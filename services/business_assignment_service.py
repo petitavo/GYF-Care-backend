@@ -6,6 +6,7 @@ import time
 from db import db
 from models import Patient, Hospital
 from services.routing_service import RoutingService
+from utils.geo_utils import distancia_km_real
 
 # Algoritmos de asignación
 from algorithms.greedy import greedy_assign
@@ -476,7 +477,7 @@ class BusinessAssignmentService:
                 continue
 
             # Distancia geográfica directa
-            d_geo = distancia_km(
+            d_geo = distancia_km_real(
                 patient["lat"], patient["lon"],
                 hosp["lat"], hosp["lon"]
             )
