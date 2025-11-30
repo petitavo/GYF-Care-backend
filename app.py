@@ -1,17 +1,20 @@
+# app.py - VERSIÓN ACTUALIZADA
+
 from flask import Flask
 from flask_cors import CORS
 from flasgger import Swagger
 
 from shared.config import Config
 from db import db
-from routes import (
-    path_bp,
-    assignment_bp,
-    network_bp,
-    compare_bp,
-    business_bp,
-    graph_bp,   # 👈 importante
-)
+
+# Importar TODOS los blueprints
+from routes.route_paths import path_bp
+from routes.route_assignments import assignment_bp
+from routes.route_network import network_bp
+from routes.route_compare import compare_bp
+from routes.route_business import business_bp
+from routes.route_graph import graph_bp
+from routes.route_data import data_bp  # ← NUEVO
 
 
 def create_app():
@@ -28,11 +31,11 @@ def create_app():
     swagger_template = {
         "swagger": "2.0",
         "info": {
-            "title": "Hospital Backend API",
-            "description": "API para asignación de pacientes y comparación de algoritmos",
-            "version": "1.0.0"
+            "title": "GYF-Care Hospital Backend API",
+            "description": "API para asignación inteligente de pacientes y comparación de algoritmos",
+            "version": "2.0.0"
         },
-        "basePath": "/",  # raíz
+        "basePath": "/",
     }
 
     swagger_config = {
@@ -53,18 +56,34 @@ def create_app():
     Swagger(app, template=swagger_template, config=swagger_config)
     # -----------------------------
 
-    # Crear tablas
+    # Crear tablas si no existen
     with app.app_context():
         from models import Patient, Hospital
         db.create_all()
 
     # Registrar blueprints
-    app.register_blueprint(path_bp)
-    app.register_blueprint(assignment_bp)
-    app.register_blueprint(network_bp)
-    app.register_blueprint(compare_bp)
-    app.register_blueprint(business_bp)
-    app.register_blueprint(graph_bp)  # 👈 registra el nuevo
+    app.register_blueprint(data_bp)         # ← NUEVO: /api/patients, /api/hospitals
+    app.register_blueprint(path_bp)         # /api/path/...
+    app.register_blueprint(assignment_bp)   # /api/assign/...
+    app.register_blueprint(network_bp)      # /api/network/...
+    app.register_blueprint(compare_bp)      # /api/compare/...
+    app.register_blueprint(business_bp)     # /api/assign/...
+    app.register_blueprint(graph_bp)        # /api/graph/...
+
+    @app.route("/")
+    def index():
+        return {
+            "message": "GYF-Care Hospital Backend API",
+            "version": "2.0.0",
+            "docs": "/apidocs/",
+            "endpoints": {
+                "patients": "/api/patients",
+                "hospitals": "/api/hospitals",
+                "assign": "/api/assign/patient-best",
+                "compare": "/api/compare/all/<start>/<end>",
+                "graphs": "/api/graph/knn",
+            }
+        }
 
     return app
 
@@ -72,4 +91,4 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=5000)

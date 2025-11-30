@@ -1,3 +1,6 @@
+# models/__init__.py
+
 from .patient import Patient
 from .hospital import Hospital
-from .graph_node import GraphNode
+
+__all__ = ["Patient", "Hospital"]
